@@ -101,6 +101,11 @@ docker build --tag sg2ada:latest .
     --network=https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/metfaces.pkl
 ```
 
+```
+docker run  --shm-size=10g --gpus "device=0" -p 8899:8888 -it -v $(pwd):/stylegan2-ada-pytorch -v /home/purnima/appdir/Github/DATA/GreatestHitsDB/vis-data-256-split:/mydata --rm stylegan2:latest
+
+```
+
 Note: The Docker image requires NVIDIA driver release `r455.23` or later.
 
 **Legacy networks**: The above commands can load most of the network pickles created using the previous TensorFlow versions of StyleGAN2 and StyleGAN2-ADA. However, for future compatibility, we recommend converting such legacy pickles into the new format used by the PyTorch version:
@@ -240,6 +245,23 @@ In its most basic form, training new networks boils down to:
 ```.bash
 python train.py --outdir=~/training-runs --data=~/mydataset.zip --gpus=1 --dry-run
 python train.py --outdir=~/training-runs --data=~/mydataset.zip --gpus=1
+
+
+python train.py --outdir=training-runs --data=datasets/afhqcat.zip --gpus=1 --dry-run
+python train.py --outdir=training-runs --data=datasets/afhqcat.zip --gpus=1
+
+
+python train.py --outdir=training-runs --data=datasets/afhqcat.zip --gpus=1 --aug=noaug --dry-run
+python train.py --outdir=training-runs --data=datasets/afhqcat.zip --gpus=1 --aug=noaug 
+
+
+python train.py --outdir=training-runs --data=datasets/tokwotel.zip --gpus=1 --aug=noaug --dry-run
+
+
+python train.py --outdir=training-runs --data=datasets/tokwotel --gpus=1 --aug=noaug
+
+python train.py --outdir=training-runs --data=/home/purnima/appdir/Github/DATA/GreatestHitsDB/vis-data-256-split --gpus=1 --aug=noaug
+
 ```
 
 The first command is optional; it validates the arguments, prints out the training configuration, and exits. The second command kicks off the actual training.

@@ -431,7 +431,8 @@ class SynthesisNetwork(torch.nn.Module):
         num_fp16_res    = 0,        # Use FP16 for the N highest resolutions.
         **block_kwargs,             # Arguments for SynthesisBlock.
     ):
-        assert img_resolution >= 4 and img_resolution & (img_resolution - 1) == 0
+        print('img_resolution',img_resolution, (img_resolution & (img_resolution - 1)))
+        # assert img_resolution >= 4 and img_resolution & (img_resolution - 1) == 0
         super().__init__()
         self.w_dim = w_dim
         self.img_resolution = img_resolution

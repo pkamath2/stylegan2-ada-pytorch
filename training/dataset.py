@@ -14,6 +14,14 @@ import json
 import torch
 import dnnlib
 
+
+from tifresi.utils import load_signal
+from tifresi.utils import preprocess_signal
+from tifresi.stft import GaussTF, GaussTruncTF
+from tifresi.transforms import log_spectrogram
+from tifresi.transforms import inv_log_spectrogram
+import librosa
+
 try:
     import pyspng
 except ImportError:
@@ -38,6 +46,7 @@ class Dataset(torch.utils.data.Dataset):
 
         # Apply max_size.
         self._raw_idx = np.arange(self._raw_shape[0], dtype=np.int64)
+
         if (max_size is not None) and (self._raw_idx.size > max_size):
             np.random.RandomState(random_seed).shuffle(self._raw_idx)
             self._raw_idx = np.sort(self._raw_idx[:max_size])
@@ -47,6 +56,7 @@ class Dataset(torch.utils.data.Dataset):
         if xflip:
             self._raw_idx = np.tile(self._raw_idx, 2)
             self._xflip = np.concatenate([self._xflip, np.ones_like(self._xflip)])
+        
 
     def _get_raw_labels(self):
         if self._raw_labels is None:
@@ -86,7 +96,7 @@ class Dataset(torch.utils.data.Dataset):
         image = self._load_raw_image(self._raw_idx[idx])
         assert isinstance(image, np.ndarray)
         assert list(image.shape) == self.image_shape
-        assert image.dtype == np.uint8
+        # assert image.dtype == np.uint8
         if self._xflip[idx]:
             assert image.ndim == 3 # CHW
             image = image[:, :, ::-1]
@@ -123,7 +133,7 @@ class Dataset(torch.utils.data.Dataset):
     @property
     def resolution(self):
         assert len(self.image_shape) == 3 # CHW
-        assert self.image_shape[1] == self.image_shape[2]
+        # assert self.image_shape[1] == self.image_shape[2]
         return self.image_shape[1]
 
     @property
@@ -234,3 +244,138 @@ class ImageFolderDataset(Dataset):
         return labels
 
 #----------------------------------------------------------------------------
+
+
+class AudioFolderDataset(Dataset):
+    def __init__(self,
+        path,                   # Path to directory or zip.
+        resolution      = None, # Ensure specific resolution, None = highest available.
+        **super_kwargs,         # Additional arguments for the Dataset base class.
+    ):
+        self._path = path
+        self._zipfile = None
+
+        if os.path.isdir(self._path):
+            self._type = 'dir'
+            self._all_fnames = {os.path.relpath(os.path.join(root, fname), start=self._path) for root, _dirs, files in os.walk(self._path) for fname in files}
+        elif self._file_ext(self._path) == '.zip':
+            self._type = 'zip'
+            self._all_fnames = set(self._get_zipfile().namelist())
+        else:
+            raise IOError('Path must point to a directory or zip')
+
+        # PIL.Image.init()
+        
+        self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) in '.wav')
+        if len(self._image_fnames) == 0:
+            raise IOError('No image files found in the specified path')
+
+        name = os.path.splitext(os.path.basename(self._path))[0]
+        raw_shape = [len(self._image_fnames)] + list(self._load_raw_image(0).shape)
+        # if resolution is not None and (raw_shape[2] != resolution or raw_shape[3] != resolution):
+        #     raise IOError('Image files do not match the specified resolution')
+        super().__init__(name=name, raw_shape=raw_shape, **super_kwargs)
+
+    @staticmethod
+    def _file_ext(fname):
+        return os.path.splitext(fname)[1].lower()
+
+    def _get_zipfile(self):
+        assert self._type == 'zip'
+        if self._zipfile is None:
+            self._zipfile = zipfile.ZipFile(self._path)
+        return self._zipfile
+
+    def _open_file(self, fname):
+        if self._type == 'dir':
+            return open(os.path.join(self._path, fname), 'rb')
+        if self._type == 'zip':
+            return self._get_zipfile().open(fname, 'r')
+        return None
+
+    def close(self):
+        try:
+            if self._zipfile is not None:
+                self._zipfile.close()
+        finally:
+            self._zipfile = None
+
+    def __getstate__(self):
+        return dict(super().__getstate__(), _zipfile=None)
+
+    def zeropad(self, signal, audio_length):
+        if len(signal) < audio_length:
+            return np.append(
+                signal, 
+                np.zeros(audio_length - len(signal))
+            )
+        else:
+            signal = signal[0:audio_length]
+            return signal
+
+    def pghi_stft(self, x):
+        use_truncated_window = True
+        if use_truncated_window:
+            stft_system = GaussTruncTF(hop_size=self.hop_size, stft_channels=self.stft_channels)
+        else:
+            stft_system = GaussTF(hop_size=self.hop_size, stft_channels=self.stft_channels)
+        Y = stft_system.spectrogram(x)
+        log_Y= log_spectrogram(Y)
+        return np.expand_dims(log_Y,axis=0)
+        #return log_Y
+    
+    def rescale(self, data, min_val, max_val):
+        return 255*(data - min_val)/(max_val - min_val)
+
+    def _load_raw_image(self, raw_idx):
+
+        self.stft_channels = 512 #510
+        self.n_frames = 256
+        self.hop_size = 128
+        self.sample_rate = 16000
+        self.n_bins = int(512 / 2)+1
+
+        fname = self._image_fnames[raw_idx]
+        with self._open_file(fname) as f:
+            y, sr = load_signal(f, sr=16000)
+            y = preprocess_signal(y)
+            y = self.zeropad(y, self.n_frames * self.hop_size ) #Check if you need this. Also ensure that spectrograms are eventually square.
+            y = self.pghi_stft(y)
+            y = self.rescale(y, -50, 0) # rescale to 0-255 like RGB images
+            y = y.astype(np.uint8)
+
+            # Shape here is 257 X 256
+
+            ### WHOA! What!!!! - Did this to get the Spectrogram to 256 X 256   
+            y = y[:,:256,:]
+            # Shape here is 256 X 256
+
+
+        if y.ndim == 2:
+            y = y[np.newaxis, :, :] # HW => CHW
+        return y
+        
+        
+        
+        #     if pyspng is not None and self._file_ext(fname) == '.png':
+        #         image = pyspng.load(f.read())
+        #     else:
+        #         image = np.array(PIL.Image.open(f))
+        # if image.ndim == 2:
+        #     image = image[:, :, np.newaxis] # HW => HWC
+        # image = image.transpose(2, 0, 1) # HWC => CHW
+        # return image
+
+    def _load_raw_labels(self):
+        fname = 'dataset.json'
+        if fname not in self._all_fnames:
+            return None
+        with self._open_file(fname) as f:
+            labels = json.load(f)['labels']
+        if labels is None:
+            return None
+        labels = dict(labels)
+        labels = [labels[fname.replace('\\', '/')] for fname in self._image_fnames]
+        labels = np.array(labels)
+        labels = labels.astype({1: np.int64, 2: np.float32}[labels.ndim])
+        return labels
