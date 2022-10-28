@@ -10,7 +10,7 @@ Note: This version of StyleGAN2 is not compatible with PyTorch>1.8. I use PyTorc
 Please see links for the datasets I used for my experiments - 
 
 * TokWotel (Wood and Metal hits separated) - https://drive.google.com/file/d/1xjU868UgJBwnkrFEXlJg1S5u-SUNK6ag/view?usp=sharing
-* A subset and pre-processed Greatest Hits Dataset - https://drive.google.com/file/d/1U3QRj3GQTlCcLj4BriSaWd3JYIP5sE4W/view?usp=sharing 
+* A subset and pre-processed Greatest Hits Dataset - https://drive.google.com/file/d/1U3QRj3GQTlCcLj4BriSaWd3JYIP5sE4W/view?usp=sharing (original [here](https://andrewowens.com/vis/))
 
 Please use the notebook called [pghi-test.ipynb](pghi-test.ipynb) to visualise the spectrogram representations.
 
